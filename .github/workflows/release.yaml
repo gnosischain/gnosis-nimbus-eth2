@@ -1,0 +1,152 @@
+name: release
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Nimbus version to build"
+        required: true
+        type: string
+
+jobs:
+  version:
+    if: ${{ inputs.version == '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      isNew: ${{ steps.check-new-version.outputs.isNew }}
+      version: ${{ steps.fetch-latest-release.outputs.version }}
+
+    steps:
+      - name: Fetch latest release
+        id: fetch-latest-release
+        run: |
+          VERSION=$(curl https://api.github.com/repos/status-im/nimbus-eth2/releases/latest | jq -r '.tag_name')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check if new version
+        id: check-new-version
+        run: |
+          IS_NEW=$(docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.fetch-latest-release.outputs.version }} >/dev/null 2>&1 && echo false || echo true)
+          echo "isNew=${IS_NEW}" >> $GITHUB_OUTPUT
+
+      - name: Print information
+        run: |
+          echo "Latest release found: ${{ steps.fetch-latest-release.outputs.version }}"
+          echo "Found version is new: ${{ steps.check-new-version.outputs.isNew }}"
+
+  build:
+    # The binary needs to be built in the same Docker image used as base
+    # in the final image in order to link the right dependencies.
+    container: debian:bullseye-slim
+    defaults:
+      run:
+        shell: bash
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant:
+          - linux/amd64
+          - linux/arm64
+          - linux/arm/v7
+
+    if: github.event_name != 'schedule' || needs.version.outputs.isNew == 'true'
+    needs: version
+    env:
+      VERSION: ${{ inputs.version || needs.version.outputs.version }}
+
+    steps:
+      - name: Install dependencies in build container
+        run: |
+          apt update
+          apt install -y git build-essential
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          repository: status-im/nimbus-eth2
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Build binaries
+        run: |
+          # Change repo owner, as it otherwise causes git safe.directory issues for some reason
+          chown -R root: .
+
+          # Configuration
+          PLATFORM=${{ fromJson('{ "linux/amd64": "Linux_amd64", "linux/arm64": "Linux_arm64v8", "linux/arm/v7": "Linux_arm32v7" }')[matrix.variant] }}
+          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu", "linux/arm/v7": "gcc-arm-linux-gnueabihf" }')[matrix.variant] }}
+
+          # Patch the upstream build script
+          sed -i "s#/home/user/nimbus-eth2#$(pwd)#" ./docker/dist/entry_point.sh
+          sed -i 's/^BINARIES=.*/BINARIES="nimbus_beacon_node"/g' ./docker/dist/entry_point.sh
+          sed -i 's/^NIMFLAGS_COMMON="/NIMFLAGS_COMMON="-d:gnosisChainBinary -d:const_preset=gnosis /g' ./docker/dist/entry_point.sh
+
+          # Install cross-compile dependencies
+          [ ! -z $DEPENDENCIES ] && apt install -y $DEPENDENCIES
+
+          # Build the client for the given platform
+          ./docker/dist/entry_point.sh $PLATFORM
+
+      - name: String manipulation
+        id: artifact
+        run: |
+          NAME=${{ matrix.variant }}
+          echo "name=${NAME//\//-}" >> $GITHUB_OUTPUT
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ./build
+
+  package:
+    runs-on: ubuntu-latest
+
+    if: github.event_name != 'schedule' || needs.version.outputs.isNew == 'true'
+    needs: [version, build]
+    env:
+      VERSION: ${{ inputs.version || needs.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ env.VERSION }}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{ env.VERSION }}
+            type=semver,pattern=v{{major}},value=${{ env.VERSION }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/arm/v7,linux/arm64/v8,linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
