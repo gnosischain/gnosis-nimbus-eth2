@@ -104,8 +104,8 @@ jobs:
   package:
     runs-on: ubuntu-latest
 
-    if: github.event_name != 'schedule' || needs.version.outputs.isNew == 'true'
-    needs: [version, build]
+    if: always() && needs.build.result != 'failed' && (github.event_name != 'schedule' || needs.version.outputs.isNew == 'true')
+    needs: build
     env:
       VERSION: ${{ inputs.version || needs.version.outputs.version }}
 
