@@ -50,7 +50,6 @@ jobs:
         variant:
           - linux/amd64
           - linux/arm64
-          - linux/arm/v7
 
     if: always() && needs.version.result != 'failed' && (github.event_name != 'schedule' || needs.version.outputs.isNew == 'true')
     needs: version
@@ -76,8 +75,8 @@ jobs:
           chown -R root: .
 
           # Configuration
-          PLATFORM=${{ fromJson('{ "linux/amd64": "Linux_amd64", "linux/arm64": "Linux_arm64v8", "linux/arm/v7": "Linux_arm32v7" }')[matrix.variant] }}
-          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu", "linux/arm/v7": "gcc-arm-linux-gnueabihf" }')[matrix.variant] }}
+          PLATFORM=${{ fromJson('{ "linux/amd64": "Linux_amd64", "linux/arm64": "Linux_arm64v8" }')[matrix.variant] }}
+          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu" }')[matrix.variant] }}
 
           # Patch the upstream build script
           sed -i "s#/home/user/nimbus-eth2#$(pwd)#" ./docker/dist/entry_point.sh
@@ -146,7 +145,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          platforms: linux/arm/v7,linux/arm64/v8,linux/amd64
+          platforms: linux/arm64/v8,linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
