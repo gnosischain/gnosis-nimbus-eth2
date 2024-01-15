@@ -52,7 +52,7 @@ jobs:
           - linux/arm64
           - linux/arm/v7
 
-    if: github.event_name != 'schedule' || needs.version.outputs.isNew == 'true'
+    if: always() && needs.version.result != 'failed' && (github.event_name != 'schedule' || needs.version.outputs.isNew == 'true')
     needs: version
     env:
       VERSION: ${{ inputs.version || needs.version.outputs.version }}
