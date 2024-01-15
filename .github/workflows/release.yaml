@@ -140,6 +140,7 @@ jobs:
             type=semver,pattern=v{{version}},value=${{ env.VERSION }}
             type=semver,pattern=v{{major}}.{{minor}},value=${{ env.VERSION }}
             type=semver,pattern=v{{major}},value=${{ env.VERSION }}
+            type=raw,value=${{ env.VERSION }},enable=${{ github.event_name != 'schedule' }}
 
       - name: Build and push
         uses: docker/build-push-action@v4
