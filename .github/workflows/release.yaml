@@ -75,19 +75,43 @@ jobs:
           chown -R root: .
 
           # Configuration
-          PLATFORM=${{ fromJson('{ "linux/amd64": "Linux_amd64", "linux/arm64": "Linux_arm64v8" }')[matrix.variant] }}
           DEPENDENCIES=${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu" }')[matrix.variant] }}
-
-          # Patch the upstream build script
-          sed -i "s#/home/user/nimbus-eth2#$(pwd)#" ./docker/dist/entry_point.sh
-          sed -i 's/^BINARIES=.*/BINARIES="nimbus_beacon_node"/g' ./docker/dist/entry_point.sh
-          sed -i 's/^NIMFLAGS_COMMON="/NIMFLAGS_COMMON="-d:gnosisChainBinary -d:const_preset=gnosis /g' ./docker/dist/entry_point.sh
+          NIMFLAGS_COMMON="-d:const_preset=gnosis -d:disableMarchNative --gcc.options.debug:'-g1' --clang.options.debug:'-gline-tables-only'"
+          BINARIES="nimbus_beacon_node"
 
           # Install cross-compile dependencies
           [ ! -z $DEPENDENCIES ] && apt install -y $DEPENDENCIES
 
+          # Build Nim
+          make update -j$(nproc)
+
           # Build the client for the given platform
-          ./docker/dist/entry_point.sh $PLATFORM
+          if [[ "${{ matrix.variant }}" == "linux/amd64" ]]; then
+            make \
+              LOG_LEVEL=TRACE \
+              NIMFLAGS="${NIMFLAGS_COMMON}" \
+              PARTIAL_STATIC_LINKING=1 \
+              QUICK_AND_DIRTY_COMPILER=1 \
+              ${BINARIES}
+          elif [[ "${{ matrix.variant }}" == "linux/arm64" ]]; then
+            CC="aarch64-linux-gnu-gcc"
+            
+            make \
+              -j$(nproc) \
+              USE_LIBBACKTRACE=0 \
+              QUICK_AND_DIRTY_COMPILER=1 \
+              deps-common build/generate_makefile
+
+            make \
+              LOG_LEVEL="TRACE" \
+              CC="${CC}" \
+              NIMFLAGS="${NIMFLAGS_COMMON} --cpu:arm64 --gcc.exe=${CC} --gcc.linkerexe=${CC}" \
+              PARTIAL_STATIC_LINKING=1 \
+              ${BINARIES}
+          else
+            echo "Unsupported platform"
+            exit 1
+          fi
 
       - name: String manipulation
         id: artifact
