@@ -75,7 +75,7 @@ jobs:
           chown -R root: .
 
           # Configuration
-          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu" }')[matrix.variant] }}
+          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "g++-aarch64-linux-gnu" }')[matrix.variant] }}
           NIMFLAGS_COMMON="-d:const_preset=gnosis -d:disableMarchNative --gcc.options.debug:'-g1' --clang.options.debug:'-gline-tables-only'"
           BINARIES="nimbus_beacon_node"
 
