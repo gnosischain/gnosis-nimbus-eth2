@@ -9,6 +9,15 @@ on:
         description: "Nimbus version to build"
         required: true
         type: string
+      variant:
+        description: "Platform variant to build (leave empty for all)"
+        required: false
+        type: choice
+        default: ""
+        options:
+          - ""
+          - linux/amd64
+          - linux/arm64
 
 jobs:
   version:
@@ -22,7 +31,14 @@ jobs:
       - name: Fetch latest release
         id: fetch-latest-release
         run: |
-          VERSION=$(curl -f --retry 5 --retry-all-errors https://api.github.com/repos/status-im/nimbus-eth2/releases/latest | jq -r '.tag_name')
+          set -eo pipefail
+          VERSION=$(curl -f --retry 5 --retry-all-errors \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/status-im/nimbus-eth2/releases/latest | jq -r '.tag_name')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "Failed to fetch version"
+            exit 1
+          fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Check if new version
@@ -47,9 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        variant:
-          - linux/amd64
-          - linux/arm64
+        variant: ${{ inputs.variant != '' && fromJson(format('["{0}"]', inputs.variant)) || fromJson('["linux/amd64", "linux/arm64"]') }}
 
     if: always() && needs.version.result != 'failed' && (github.event_name != 'schedule' || needs.version.outputs.isNew == 'true')
     needs: version
@@ -80,7 +94,7 @@ jobs:
           BINARIES="nimbus_beacon_node"
 
           # Install cross-compile dependencies
-          [ -n "$DEPENDENCIES" ] && apt install -y $DEPENDENCIES
+          [[ -n "$DEPENDENCIES" ]] && apt install -y $DEPENDENCIES
 
           # Build Nim
           make update -j$(nproc)
@@ -96,7 +110,7 @@ jobs:
           elif [[ "${{ matrix.variant }}" == "linux/arm64" ]]; then
             CC="aarch64-linux-gnu-gcc"
             CXX="aarch64-linux-gnu-g++"
-            
+
             make \
               -j$(nproc) \
               USE_LIBBACKTRACE=0 \
@@ -172,7 +186,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64/v8,linux/amd64
+          platforms: ${{ inputs.variant != '' && inputs.variant || 'linux/arm64/v8,linux/amd64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
