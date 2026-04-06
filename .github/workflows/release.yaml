@@ -75,12 +75,12 @@ jobs:
           chown -R root: .
 
           # Configuration
-          DEPENDENCIES=${{ fromJson('{ "linux/arm64": "g++-aarch64-linux-gnu" }')[matrix.variant] }}
+          DEPENDENCIES="${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu" }')[matrix.variant] }}"
           NIMFLAGS_COMMON="-d:const_preset=gnosis -d:disableMarchNative --gcc.options.debug:'-g1' --clang.options.debug:'-gline-tables-only'"
           BINARIES="nimbus_beacon_node"
 
           # Install cross-compile dependencies
-          [ ! -z $DEPENDENCIES ] && apt install -y $DEPENDENCIES
+          [ -n "$DEPENDENCIES" ] && apt install -y $DEPENDENCIES
 
           # Build Nim
           make update -j$(nproc)
@@ -95,6 +95,7 @@ jobs:
               ${BINARIES}
           elif [[ "${{ matrix.variant }}" == "linux/arm64" ]]; then
             CC="aarch64-linux-gnu-gcc"
+            CXX="aarch64-linux-gnu-g++"
             
             make \
               -j$(nproc) \
@@ -105,7 +106,8 @@ jobs:
             make \
               LOG_LEVEL="TRACE" \
               CC="${CC}" \
-              NIMFLAGS="${NIMFLAGS_COMMON} --cpu:arm64 --gcc.exe=${CC} --gcc.linkerexe=${CC}" \
+              CXX="${CXX}" \
+              NIMFLAGS="${NIMFLAGS_COMMON} --cpu:arm64 --gcc.exe=${CC} --gcc.linkerexe=${CXX}" \
               PARTIAL_STATIC_LINKING=1 \
               ${BINARIES}
           else
