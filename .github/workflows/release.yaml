@@ -77,7 +77,7 @@ jobs:
           # Configuration
           DEPENDENCIES="${{ fromJson('{ "linux/arm64": "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu" }')[matrix.variant] }}"
           NIMFLAGS_COMMON="-d:const_preset=gnosis -d:disableMarchNative --gcc.options.debug:'-g1' --clang.options.debug:'-gline-tables-only'"
-          BINARIES="nimbus_beacon_node"
+          BINARIES="nimbus_beacon_node nimbus_validator_client"
 
           # Install cross-compile dependencies
           [ -n "$DEPENDENCIES" ] && apt install -y $DEPENDENCIES
@@ -157,7 +157,7 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Docker meta
+      - name: Docker meta (beacon node)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -168,11 +168,33 @@ jobs:
             type=semver,pattern=v{{major}},value=${{ env.VERSION }}
             type=raw,value=${{ env.VERSION }},enable=${{ github.event_name != 'schedule' }}
 
-      - name: Build and push
+      - name: Build and push beacon node image
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
           platforms: linux/arm64/v8,linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Docker meta (validator client)
+        id: meta-vc
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/gnosis-nimbus-validator-client
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ env.VERSION }}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{ env.VERSION }}
+            type=semver,pattern=v{{major}},value=${{ env.VERSION }}
+            type=raw,value=${{ env.VERSION }},enable=${{ github.event_name != 'schedule' }}
+
+      - name: Build and push validator client image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.validator
+          platforms: linux/arm64/v8,linux/amd64
+          push: true
+          tags: ${{ steps.meta-vc.outputs.tags }}
+          labels: ${{ steps.meta-vc.outputs.labels }}
